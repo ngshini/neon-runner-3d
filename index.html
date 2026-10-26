@@ -41,6 +41,17 @@
   @media (pointer:coarse){#touch.on{display:flex}}
   #toast{position:fixed;top:86px;left:50%;transform:translateX(-50%);z-index:7;font-weight:800;font-size:20px;color:#fde047;opacity:0;transition:opacity .2s;pointer-events:none;text-shadow:0 2px 12px rgba(0,0,0,.7)}
   #pauseHint{position:fixed;bottom:10px;right:14px;font-size:11.5px;color:rgba(203,213,225,.55);z-index:4}
+  /* Level + monster meters */
+  #topCenter{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:5;display:none;width:min(340px,44vw)}
+  #levelName{text-align:center;font-weight:800;letter-spacing:.14em;font-size:13px;color:#e0e7ff;text-shadow:0 2px 10px rgba(0,0,0,.8)}
+  .barWrap{height:8px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden;margin-top:5px;border:1px solid rgba(255,255,255,.18)}
+  #lvlProg{height:100%;width:0%;background:linear-gradient(90deg,#22d3ee,#818cf8);transition:width .2s}
+  #monWrap{margin-top:9px}
+  #monLabel{font-size:10.5px;letter-spacing:.12em;color:#fca5a5;font-weight:700;text-align:center}
+  #monProg{height:100%;width:0%;background:linear-gradient(90deg,#f59e0b,#ef4444);transition:width .15s}
+  #monWrap.danger{animation:monPulse .5s infinite alternate}
+  @keyframes monPulse{from{transform:scale(1)}to{transform:scale(1.06)}}
+  #vignette{position:fixed;inset:0;pointer-events:none;z-index:3;opacity:0;background:radial-gradient(ellipse at center,transparent 52%,rgba(220,38,38,.5) 100%);transition:opacity .25s}
 </style>
 </head>
 <body>
@@ -52,6 +63,15 @@
   <div class="hud-box" id="speedBox"><div class="hud-label">Tốc độ</div><div class="hud-value"><span id="speed">0</span><small> km/h</small></div></div>
 </div>
 <div id="toast"></div>
+<div id="vignette"></div>
+<div id="topCenter">
+  <div id="levelName">MÀN 1 · NEON CITY</div>
+  <div class="barWrap"><div id="lvlProg"></div></div>
+  <div id="monWrap">
+    <div id="monLabel">👾 QUÁI ĐANG ĐUỔI PHÍA SAU</div>
+    <div class="barWrap"><div id="monProg"></div></div>
+  </div>
+</div>
 
 <div class="screen" id="startScreen">
   <div class="logo">NEON RUNNER 3D</div>
@@ -64,13 +84,13 @@
       <div><b>Tạm dừng</b> <kbd>P</kbd></div>
       <div><b>Điện thoại</b> Vuốt trái / phải / lên</div>
     </div>
-    <div class="tip">🟥 Rào đỏ thấp → <b>NHẢY</b> qua được &nbsp;·&nbsp; 🟪 Xe tải tím cao → <b>BẮT BUỘC né làn</b><br>🪙 Ăn xu vàng +50 điểm. Chạy càng xa tốc độ càng tăng!</div>
+    <div class="tip">🟥 Rào đỏ thấp → <b>NHẢY</b> qua được, đâm phải chỉ bị <b>vấp</b> (chậm lại + quái áp sát!) &nbsp;·&nbsp; 🟪 Xe tải tím cao → đâm là <b>THUA NGAY</b>, bắt buộc né làn<br>👾 <b>Quái đuổi sau lưng:</b> ăn xu để đẩy nó ra xa, để nó bắt kịp là thua! &nbsp;·&nbsp; 🪙 Xu +50 điểm<br>🆙 Mỗi 400m lên 1 màn: đổi cảnh, nhanh hơn, quái hung hơn. 🎵 Có nhạc nền synthwave!</div>
   </div>
   <button class="btn" id="startBtn">▶ &nbsp;CHƠI NGAY</button>
 </div>
 
 <div class="screen" id="overScreen">
-  <div class="logo" style="background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;background-clip:text">ĐÂM RỒI!</div>
+  <div class="logo" id="overTitle" style="background:linear-gradient(90deg,#f87171,#fb923c);-webkit-background-clip:text;background-clip:text">ĐÂM RỒI!</div>
   <div class="card" style="text-align:center">
     <div class="hud-label">Điểm của bạn</div>
     <div id="finalScore">0</div>
@@ -138,9 +158,10 @@ road.rotation.x = -Math.PI/2; road.position.z = -160; road.receiveShadow = true;
 scene.add(road);
 
 // sidewalks / neon edges
+const edgeMeshes=[];
 for(const s of [-1,1]){
   const edge = box(0.28,0.22,400, 0x0b0f26, { emissive: s<0?0x2563eb:0xd946ef, ei:1.6, shadow:false });
-  edge.position.set(s*5.05, 0.11, -160); scene.add(edge);
+  edge.position.set(s*5.05, 0.11, -160); scene.add(edge); edgeMeshes.push(edge);
   const walk = new THREE.Mesh(new THREE.PlaneGeometry(7,400), new THREE.MeshStandardMaterial({color:0x0a0d22, roughness:1}));
   walk.rotation.x=-Math.PI/2; walk.position.set(s*8.9, -0.01, -160); walk.receiveShadow=true; scene.add(walk);
 }
@@ -171,7 +192,7 @@ const buildings = [];
     win.scale.set(1,1,1); win.position.x = 0; win.position.z = side<0? 0:0;
     // simpler: front face toward road
     win.position.set(0,0, side<0? b.geometry.parameters.depth/2+0.04 : -b.geometry.parameters.depth/2-0.04);
-    b.add(win); scene.add(b); buildings.push(b);
+    b.add(win); b.userData.winMat = win.material; scene.add(b); buildings.push(b);
   }
 }
 // stars
@@ -288,16 +309,127 @@ const sfx={
   coin(){ beep(950,0.09,'sine',0.14); setTimeout(()=>beep(1420,0.13,'sine',0.12),55); },
   jump(){ beep(280,0.18,'sine',0.10,340); },
   crash(){ beep(160,0.5,'sawtooth',0.22,-110); beep(70,0.6,'square',0.18,-30); },
-  click(){ beep(660,0.07,'triangle',0.12); }
+  click(){ beep(660,0.07,'triangle',0.12); },
+  levelup(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>beep(f,0.16,'triangle',0.14),i*85)); },
+  roar(){ beep(95,0.7,'sawtooth',0.24,-45); beep(64,0.8,'square',0.16,-20); },
+  stumble(){ beep(220,0.22,'sawtooth',0.16,-120); }
 };
+
+/* ================= BACKGROUND MUSIC (WebAudio synthwave sequencer) ================= */
+let musicTimer=null, musicStep=0, nextNoteT=0;
+const MUS_BPM=116, MUS_SPB=60/MUS_BPM/2; // eighth notes
+const MUS_BASS=[55,55,0,55, 43.65,43.65,0,43.65, 65.41,65.41,0,65.41, 49,49,0,49]; // Am F C G roots, 16 eighths = 2 bars loop x2
+const MUS_ARP=[220,261.63,329.63,440, 174.61,220,261.63,349.23, 196,261.63,329.63,392, 146.83,196,246.94,293.66];
+let noiseBuf=null;
+function musNoise(dur,vol,freq){
+  const t=audioCtx.currentTime;
+  if(!noiseBuf){ noiseBuf=audioCtx.createBuffer(1,audioCtx.sampleRate*0.5,audioCtx.sampleRate);
+    const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+  const src=audioCtx.createBufferSource(); src.buffer=noiseBuf;
+  const f=audioCtx.createBiquadFilter(); f.type='highpass'; f.frequency.value=freq;
+  const g=audioCtx.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  src.connect(f).connect(g).connect(audioCtx.destination); src.start(t); src.stop(t+dur);
+}
+function musNote(freq,t,dur,type,vol,slideTo){
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo,t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t+dur);
+}
+function musicTick(){
+  if(!audioCtx) return;
+  while(nextNoteT < audioCtx.currentTime + 0.14){
+    const s=musicStep%16, t=nextNoteT;
+    if(s%4===0) musNote(130,t,0.22,'sine',0.30,38);                    // kick
+    if(s%4===2) musNoise(0.05,0.05,6000);                               // hat
+    if(s%8===4) musNoise(0.14,0.10,1800);                               // snare-ish
+    const b=MUS_BASS[s]; if(b) musNote(b,t,MUS_SPB*0.92,'triangle',0.20);
+    musNote(MUS_ARP[s],t,MUS_SPB*0.9,'square',0.028);                   // arp sparkle
+    if(s%8===0) musNote(MUS_ARP[s]/2,t,MUS_SPB*6,'sawtooth',0.016);    // pad root
+    nextNoteT+=MUS_SPB; musicStep++;
+  }
+}
+function startMusic(){
+  if(muted) return;
+  try{
+    audioCtx ??= new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended') audioCtx.resume();
+    if(musicTimer) return;
+    musicStep=0; nextNoteT=audioCtx.currentTime+0.06;
+    musicTimer=setInterval(musicTick,42);
+  }catch(e){}
+}
+function stopMusic(){ if(musicTimer){ clearInterval(musicTimer); musicTimer=null; } }
+
+/* ================= MONSTER (chases the player) ================= */
+const monster = new THREE.Group();
+const monLegs=[];
+{
+  const hide = new THREE.MeshStandardMaterial({ color:0x1f1230, roughness:0.5, metalness:0.6 });
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1.15,20,16), hide);
+  belly.scale.set(1.15,0.95,1.5); belly.position.y=1.55; belly.castShadow=true; monster.add(belly);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.72,18,14), hide);
+  head.position.set(0,1.5,-1.75); head.castShadow=true; monster.add(head);
+  const jaw = box(0.8,0.22,0.7, 0x140a20, {rough:0.6}); jaw.position.set(0,1.12,-1.95); monster.add(jaw);
+  for(const s of [-1,1]){ // glowing eyes face -z (toward the car)
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11,10,10),
+      new THREE.MeshBasicMaterial({ color:0xff2222 }));
+    eye.position.set(s*0.28,1.62,-2.38); monster.add(eye);
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.14,0.62,8),
+      new THREE.MeshStandardMaterial({ color:0xd8b4fe, roughness:0.35, emissive:0x7c3aed, emissiveIntensity:0.5 }));
+    horn.position.set(s*0.45,2.2,-1.6); horn.rotation.x=-0.5; monster.add(horn);
+    for(let i=0;i<4;i++){ // teeth
+      const tooth=new THREE.Mesh(new THREE.ConeGeometry(0.055,0.2,6), new THREE.MeshBasicMaterial({color:0xf8fafc}));
+      tooth.position.set(s*(0.12+i*0.09),1.28,-2.28); tooth.rotation.x=Math.PI; monster.add(tooth);
+    }
+  }
+  for(let i=0;i<5;i++){ // back spikes
+    const sp=new THREE.Mesh(new THREE.ConeGeometry(0.16,0.6,8),
+      new THREE.MeshStandardMaterial({ color:0x7c3aed, emissive:0x7c3aed, emissiveIntensity:0.7, roughness:0.4 }));
+    sp.position.set(0, 2.35-Math.abs(i-2)*0.16, -0.9+i*0.5); monster.add(sp);
+  }
+  const legMat = new THREE.MeshStandardMaterial({ color:0x2a1842, roughness:0.55, metalness:0.5 });
+  for(const s of [-1,1]) for(let i=0;i<3;i++){
+    const hip=new THREE.Group(); hip.position.set(s*1.0,1.35,-0.9+i*0.85);
+    const upper=new THREE.Mesh(new THREE.BoxGeometry(0.2,1.0,0.2), legMat);
+    upper.position.y=-0.5; upper.castShadow=true; hip.add(upper);
+    const foot=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.14,0.5), legMat);
+    foot.position.set(0,-1.02,0.08); hip.add(foot);
+    hip.rotation.z = s*0.35;
+    monster.add(hip); monLegs.push({hip, phase:(i%2? Math.PI:0)+(s>0?0.5:0)});
+  }
+  const mLight=new THREE.PointLight(0xef4444, 26, 15); mLight.position.set(0,2,-1.5); monster.add(mLight);
+  monster.visible=false;
+}
+scene.add(monster);
+
+/* ================= LEVELS / THEMES ================= */
+const THEMES=[
+  { name:'NEON CITY',    bg:new THREE.Color(0x070a24), hemi:0x8ea2ff, edge:[0x2563eb,0xd946ef], build:[0x1e2a5a,0x2a1e5a,0x12303f,0x33204d,0x1c2f4a], win:[0x22d3ee,0xfbbf24,0xe879f9,0x93c5fd] },
+  { name:'MAGENTA DUSK', bg:new THREE.Color(0x200726), hemi:0xf0abfc, edge:[0xd946ef,0xf97316], build:[0x3b1140,0x2a0f38,0x401a2e,0x31123f,0x2e1a3d], win:[0xe879f9,0xfda4af,0xfbbf24,0xf0abfc] },
+  { name:'TOXIC ZONE',   bg:new THREE.Color(0x03170d), hemi:0x86efac, edge:[0x22c55e,0xa3e635], build:[0x0d2e1c,0x123524,0x0a2a22,0x17351a,0x10291f], win:[0x4ade80,0xa3e635,0xfde047,0x2dd4bf] },
+  { name:'SOLAR STORM',  bg:new THREE.Color(0x1e0e02), hemi:0xfcd34d, edge:[0xf97316,0xef4444], build:[0x3a2008,0x33200f,0x402a10,0x2e1a08,0x3d2408], win:[0xfbbf24,0xfb923c,0xf87171,0xfde68a] },
+];
+let level=1, themeIdx=0;
+const targetBg = THEMES[0].bg.clone();
+function applyTheme(idx){
+  themeIdx=((idx%THEMES.length)+THEMES.length)%THEMES.length;
+  const th=THEMES[themeIdx];
+  targetBg.copy(th.bg);
+  buildings.forEach((b,i)=>{ b.material.color.setHex(th.build[i%th.build.length]); b.userData.winMat.emissive.setHex(th.win[i%th.win.length]); });
+  edgeMeshes.forEach((e,i)=> e.material.emissive.setHex(th.edge[i%2]));
+  scene.traverse(o=>{ if(o.isHemisphereLight) o.color.setHex(th.hemi); });
+}
 
 /* ================= GAME STATE ================= */
 const $=id=>document.getElementById(id);
 let state='menu'; // menu | playing | paused | over
 let laneIdx=1, targetX=0, vy=0, onGround=true;
 let speed=0, distance=0, score=0, coinCount=0, nextSpawn=-70, shake=0, elapsedRun=0;
+let monsterGap=15, stumbleT=0, nearMissCooldown=0, monRunPhase=0, roarCooldown=0;
 let best=+(localStorage.getItem('neonRunnerBest')||0);
-const GRAV=26, JUMP=10.5;
+const GRAV=26, JUMP=10.5, LEVEL_LEN=400, MON_MAX=16, MON_CATCH=2.4;
 
 function resetGame(){
   for(const o of obstacles) scene.remove(o); obstacles.length=0;
@@ -305,6 +437,10 @@ function resetGame(){
   for(const b of bursts) scene.remove(b); bursts.length=0;
   laneIdx=1; targetX=0; car.position.set(0,0,0); car.rotation.set(0,0,0);
   vy=0; onGround=true; speed=19; distance=0; score=0; coinCount=0; nextSpawn=-55; shake=0; elapsedRun=0;
+  level=1; monsterGap=15; stumbleT=0; nearMissCooldown=0; roarCooldown=0;
+  applyTheme(0);
+  scene.background.copy(THEMES[0].bg); scene.fog.color.copy(THEMES[0].bg);
+  monster.visible=true; monster.position.set(0,0,15);
   for(let z=-58; z>=-125; z-=rand(17,25)) spawnPattern(z);
   updateHUD();
 }
@@ -312,6 +448,12 @@ function updateHUD(){
   $('score').textContent=Math.floor(score);
   $('coins').textContent=coinCount;
   $('speed').textContent=Math.round(speed*3.2);
+  $('levelName').textContent=`MÀN ${level} · ${THEMES[themeIdx].name} · ${Math.floor(distance)}m`;
+  $('lvlProg').style.width=((distance%LEVEL_LEN)/LEVEL_LEN*100)+'%';
+  const danger=THREE.MathUtils.clamp(1-(monsterGap-MON_CATCH)/(MON_MAX-MON_CATCH),0,1);
+  $('monProg').style.width=(danger*100)+'%';
+  $('monWrap').classList.toggle('danger', monsterGap<6.5);
+  $('vignette').style.opacity = monsterGap<6.5 ? (0.35+ (6.5-monsterGap)*0.12) : 0;
 }
 let toastTimer=null;
 function toast(txt){ const t=$('toast'); t.textContent=txt; t.style.opacity=1;
@@ -320,20 +462,24 @@ function toast(txt){ const t=$('toast'); t.textContent=txt; t.style.opacity=1;
 function startGame(){
   resetGame(); state='playing';
   $('startScreen').style.display='none'; $('overScreen').style.display='none';
-  $('hud').style.display='flex'; $('touch').classList.add('on');
-  sfx.click();
+  $('hud').style.display='flex'; $('topCenter').style.display='block'; $('touch').classList.add('on');
+  sfx.click(); startMusic();
+  setTimeout(()=>{ if(state==='playing') sfx.roar(); },350);
+  toast('👾 Quái đang đuổi — đừng để nó bắt kịp!');
 }
-function gameOver(){
-  state='over'; sfx.crash(); shake=1.1;
+function gameOver(reason='crash'){
+  state='over'; stopMusic(); sfx.crash(); shake=1.1;
+  $('overTitle').textContent = reason==='caught' ? 'QUÁI BẮT ĐƯỢC RỒI!' : 'ĐÂM RỒI!';
+  if(reason==='caught') sfx.roar();
   burst(car.position.clone().add(new THREE.Vector3(0,0.8,0)), 0xf97316, 42, 7);
   burst(car.position.clone().add(new THREE.Vector3(0,0.8,0)), 0xef4444, 30, 5);
   const final=Math.floor(score);
   const isBest = final>best; if(isBest){ best=final; localStorage.setItem('neonRunnerBest',best); }
   $('finalScore').textContent=final;
-  $('finalCoins').textContent=`🪙 ${coinCount} xu · 🏁 ${Math.floor(distance)} m`;
+  $('finalCoins').textContent=`🪙 ${coinCount} xu · 🏁 ${Math.floor(distance)} m · 🆙 tới màn ${level}`;
   $('bestScore').textContent=best;
   $('newBest').style.display=isBest?'block':'none';
-  setTimeout(()=>{ $('overScreen').style.display='flex'; $('hud').style.display='none'; $('touch').classList.remove('on'); },650);
+  setTimeout(()=>{ $('overScreen').style.display='flex'; $('hud').style.display='none'; $('topCenter').style.display='none'; $('vignette').style.opacity=0; $('touch').classList.remove('on'); },650);
 }
 function move(dir){ if(state!=='playing')return;
   laneIdx=THREE.MathUtils.clamp(laneIdx+dir,0,2); targetX=LANES[laneIdx]; }
@@ -346,8 +492,8 @@ addEventListener('keydown',e=>{
   if(e.code==='ArrowLeft'||e.code==='KeyA') move(-1);
   else if(e.code==='ArrowRight'||e.code==='KeyD') move(1);
   else if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space'){ state==='playing'? jump() : (state==='menu'||state==='over') && startGame(); }
-  else if(e.code==='KeyP'){ if(state==='playing'){state='paused'; toast('⏸ TẠM DỪNG — bấm P để tiếp tục');} else if(state==='paused'){state='playing'; toast('▶ TIẾP TỤC');} }
-  else if(e.code==='KeyM'){ muted=!muted; toast(muted?'🔇 Đã tắt tiếng':'🔊 Đã bật tiếng'); }
+  else if(e.code==='KeyP'){ if(state==='playing'){state='paused'; stopMusic(); toast('⏸ TẠM DỪNG — bấm P để tiếp tục');} else if(state==='paused'){state='playing'; startMusic(); toast('▶ TIẾP TỤC');} }
+  else if(e.code==='KeyM'){ muted=!muted; if(muted) stopMusic(); else if(state==='playing') startMusic(); toast(muted?'🔇 Đã tắt tiếng + nhạc':'🔊 Đã bật tiếng + nhạc'); }
 });
 let touchX=null, touchY=null;
 addEventListener('touchstart',e=>{ const t=e.changedTouches[0]; touchX=t.clientX; touchY=t.clientY; },{passive:true});
@@ -371,10 +517,26 @@ function animate(){
   const dt=Math.min(timer.getDelta(),0.05);
   const t=timer.getElapsed();
 
+  let effSpeed=speed;
   if(state==='playing'){
     elapsedRun+=dt;
-    speed=Math.min(19+elapsedRun*0.55, 52);
-    distance+=speed*dt; score=distance + coinCount*50;
+    stumbleT=Math.max(0,stumbleT-dt); nearMissCooldown=Math.max(0,nearMissCooldown-dt); roarCooldown=Math.max(0,roarCooldown-dt);
+    speed=Math.min(19+elapsedRun*0.55, 52+(level-1)*3);
+    effSpeed = stumbleT>0 ? speed*0.42 : speed;
+    distance+=effSpeed*dt; score=distance + coinCount*50;
+    // level up every LEVEL_LEN metres
+    const newLevel=Math.floor(distance/LEVEL_LEN)+1;
+    if(newLevel!==level){
+      level=newLevel; applyTheme(level-1); sfx.levelup();
+      monsterGap=Math.min(monsterGap+2.5, MON_MAX);
+      toast(`🆙 MÀN ${level}: ${THEMES[themeIdx].name} — nhanh hơn, quái hung hơn!`);
+    }
+    // monster pressure: creeps closer, outrun it at high speed
+    monsterGap -= (0.55 + level*0.12)*dt;
+    if(effSpeed>26) monsterGap += (effSpeed-26)*0.02*dt*8;
+    monsterGap=THREE.MathUtils.clamp(monsterGap,-1,MON_MAX);
+    if(monsterGap<6.5 && roarCooldown<=0){ sfx.roar(); roarCooldown=7; }
+    if(monsterGap<=MON_CATCH){ monster.position.z=1.4; gameOver('caught'); }
     // car lane + tilt
     car.position.x = THREE.MathUtils.damp(car.position.x, targetX, 11, dt);
     car.rotation.z = THREE.MathUtils.damp(car.rotation.z, -(targetX-car.position.x)*0.14, 10, dt);
@@ -390,16 +552,28 @@ function animate(){
     // spawn
     nextSpawn += speed*dt; // reuse as travelled marker below via z movement instead
     // move world
-    const dz=speed*dt;
+    const dz=effSpeed*dt;
     for(const s of stripes){ s.position.z+=dz; if(s.position.z>10) s.position.z-=220; }
     for(const b of buildings){ b.position.z+=dz; if(b.position.z>16){ b.position.z-=255; b.position.x=(Math.random()<0.5?-1:1)*rand(8.5,13.5); } }
     for(const o of obstacles){
       o.position.z+=dz;
       if(o.position.z>11){ scene.remove(o); o.userData.dead=true; continue; }
+      // near-miss bonus: obstacle slips past the car
+      if(!o.userData.counted && o.position.z>1.7){
+        o.userData.counted=true;
+        if(Math.abs(o.position.x-car.position.x)<2.5){ score+=15; monsterGap=Math.min(monsterGap+0.3,MON_MAX); }
+      }
       // collision: same lane band + z overlap
       if(!o.userData.hit && Math.abs(o.position.z)<1.15 && Math.abs(o.position.x-car.position.x)<1.25){
         const canJumpOver = o.userData.type==='low' && car.position.y>0.95;
-        if(!canJumpOver){ o.userData.hit=true; gameOver(); }
+        if(canJumpOver){ /* sailed over it */ }
+        else if(o.userData.type==='low'){
+          // STUMBLE: smash through the barrier, slow down, monster lunges closer
+          o.userData.hit=true; o.userData.dead=true; scene.remove(o);
+          burst(o.position.clone().add(new THREE.Vector3(0,0.6,0)), 0xf97316, 20, 5);
+          if(stumbleT<=0){ stumbleT=1.15; monsterGap=Math.max(monsterGap-5.5,0); shake=0.8; sfx.stumble(); toast('💥 VẤP RÀO! Quái áp sát — ăn xu để đẩy nó ra!'); }
+        }
+        else { o.userData.hit=true; gameOver('crash'); }
       }
     }
     for(let i=obstacles.length-1;i>=0;i--) if(obstacles[i].userData.dead) obstacles.splice(i,1);
@@ -409,7 +583,7 @@ function animate(){
       if(!c.userData.taken && Math.abs(c.position.z)<1.1 && Math.abs(c.position.x-car.position.x)<1.15
          && Math.abs(c.position.y-(car.position.y+0.95))<1.15){
         c.userData.taken=true; c.userData.dead=true; scene.remove(c);
-        coinCount++; score+=50; sfx.coin();
+        coinCount++; score+=50; monsterGap=Math.min(monsterGap+0.35,MON_MAX); sfx.coin();
         burst(c.position.clone(),0xfbbf24,12,3);
         if(coinCount%10===0) toast(`🪙 ${coinCount} xu! +500`);
         updateHUD();
@@ -420,7 +594,16 @@ function animate(){
     let farthest=-130;
     for(const o of obstacles) farthest=Math.min(farthest,o.position.z);
     for(const c of coinsArr) farthest=Math.min(farthest,c.position.z);
-    if(farthest>-95) spawnPattern(farthest-rand(16,26));
+    if(farthest>-95) spawnPattern(farthest-rand(Math.max(11,18-level*1.2), Math.max(16,27-level*1.6)));
+    // monster visuals: chase position, run cycle, looming scale
+    monRunPhase += dt*(5+effSpeed*0.42);
+    monster.position.z = monsterGap;
+    monster.position.x = THREE.MathUtils.damp(monster.position.x, car.position.x*0.92, 3.2, dt);
+    monster.position.y = Math.abs(Math.sin(monRunPhase))*0.22;
+    monster.rotation.y = THREE.MathUtils.damp(monster.rotation.y, (car.position.x-monster.position.x)*0.06, 4, dt);
+    for(const L of monLegs) L.hip.rotation.x = Math.sin(monRunPhase+L.phase)*0.6;
+    const loom = monsterGap<7 ? 1+(7-monsterGap)*0.045 : 1;
+    monster.scale.setScalar(loom);
     updateHUD();
   } else if(state==='menu' || state==='over'){
     // idle showroom: slow orbit + car bob
@@ -428,7 +611,12 @@ function animate(){
     car.rotation.y = Math.sin(t*0.35)*0.28;
     for(const s of stripes){ s.position.z+=dt*3; if(s.position.z>10) s.position.z-=220; }
     for(const c of coinsArr) c.rotation.z+=dt*2;
+    if(monster.visible){ monRunPhase+=dt*4; for(const L of monLegs) L.hip.rotation.x=Math.sin(monRunPhase+L.phase)*0.3;
+      monster.position.y=Math.abs(Math.sin(monRunPhase))*0.12; }
   }
+  // smooth theme colour transitions
+  scene.background.lerp(targetBg, Math.min(1, dt*1.8));
+  scene.fog.color.copy(scene.background);
   // particles
   for(let i=bursts.length-1;i>=0;i--){
     const b=bursts[i]; b.userData.life-=dt;
