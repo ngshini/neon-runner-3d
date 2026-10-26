@@ -108,9 +108,13 @@
 </div>
 <div id="pauseHint">P: tạm dừng · M: tắt tiếng</div>
 
-<script type="importmap">{ "imports": { "three": "./three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "./three.module.js", "three/addons/": "./addons/" } }</script>
 <script type="module">
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 /* ================= RENDERER / SCENE ================= */
 const container = document.getElementById('game');
@@ -130,6 +134,32 @@ scene.fog = new THREE.Fog(0x070a24, 28, 115);
 const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, 0.1, 300);
 camera.position.set(0, 4.6, 8.5);
 
+/* Post-processing: UnrealBloom for neon glow (strength driven per theme) */
+const composer = new EffectComposer(renderer);
+let dprCap = Math.min(window.devicePixelRatio||1, 1.75);
+renderer.setPixelRatio(dprCap); composer.setPixelRatio(dprCap);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.55, 0.72);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
+/* Gradient sky dome (top colour lerps per theme, horizon = fog colour) */
+const skyUniforms = {
+  topColor: { value: new THREE.Color(0x3d7dc2) },
+  botColor: { value: new THREE.Color(0x8ec9ee) },
+};
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(240, 24, 14),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite:false, fog:false,
+    uniforms: skyUniforms,
+    vertexShader: 'varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 topColor; uniform vec3 botColor; varying vec3 vP; void main(){ float h=clamp(normalize(vP).y*1.6+0.12,0.0,1.0); gl_FragColor=vec4(mix(botColor,topColor,pow(h,0.8)),1.0); }'
+  }));
+skyDome.renderOrder=-10;
+scene.add(skyDome);
+const targetSkyTop = new THREE.Color(0x3d7dc2);
+
 const hemi = new THREE.HemisphereLight(0x8ea2ff, 0x1a1033, 1.1);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -144,13 +174,41 @@ scene.add(glowLight);
 /* ================= HELPERS ================= */
 const LANES = [-2.3, 0, 2.3];
 const rand = (a,b)=>a+Math.random()*(b-a);
+const geoCache=new Map();
+function boxGeo(w,h,d){
+  const key=w.toFixed(2)+'|'+h.toFixed(2)+'|'+d.toFixed(2);
+  let g=geoCache.get(key);
+  if(!g){ g=new THREE.BoxGeometry(w,h,d); geoCache.set(key,g); }
+  return g;
+}
 function box(w,h,d,color,opts={}){
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),
+  const m = new THREE.Mesh(boxGeo(w,h,d),
     new THREE.MeshStandardMaterial({ color, roughness:opts.rough??0.55, metalness:opts.metal??0.25,
       emissive:opts.emissive??0x000000, emissiveIntensity:opts.ei??0 }));
   m.castShadow = opts.shadow!==false; m.receiveShadow = true;
   return m;
 }
+/* Building facade textures: light facade map + black emissive map with lit windows.
+   Shared across buildings (3 variants) — big night-time gain, near-zero cost. */
+function makeFacadePair(){
+  const W=128,H=256, cols=6, rows=14, cw=W/cols, ch=H/rows;
+  const fc=document.createElement('canvas'); fc.width=W; fc.height=H;
+  const fx=fc.getContext('2d');
+  fx.fillStyle='#c7ccd6'; fx.fillRect(0,0,W,H);
+  const ec=document.createElement('canvas'); ec.width=W; ec.height=H;
+  const ex=ec.getContext('2d');
+  ex.fillStyle='#000000'; ex.fillRect(0,0,W,H);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const x=c*cw+3, y=r*ch+3, w=cw-6, h=ch-6;
+    fx.fillStyle = Math.random()<0.5? '#8fa0b5' : '#aebdd2'; fx.fillRect(x,y,w,h);
+    fx.strokeStyle='rgba(60,70,90,.6)'; fx.strokeRect(x,y,w,h);
+    if(Math.random()<0.55){ ex.fillStyle = Math.random()<0.75? '#ffffff' : '#ffd9a0'; ex.fillRect(x,y,w,h); }
+  }
+  const map=new THREE.CanvasTexture(fc); map.colorSpace=THREE.SRGBColorSpace;
+  const emis=new THREE.CanvasTexture(ec); emis.colorSpace=THREE.SRGBColorSpace;
+  return { map, emis };
+}
+const facadePairs=[makeFacadePair(), makeFacadePair(), makeFacadePair()];
 
 /* ================= WORLD: ROAD / CITY / STARS ================= */
 const road = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 400),
@@ -185,15 +243,11 @@ const buildings = [];
     const h = rand(4,15);
     const b = box(rand(2.6,4), h, rand(2.6,4), palette[i%palette.length], {rough:0.85, shadow:false});
     b.position.set(side*rand(8.5,13.5), h/2, -i*7.5 - rand(0,4));
-    // glowing window strip
-    const win = box(b.geometry.parameters.width*0.72, h*0.7, 0.06, 0x0b0f26,
-      { emissive: winPalette[i%winPalette.length], ei: rand(0.7,1.5), shadow:false });
-    win.position.set(side<0? b.geometry.parameters.width/2+0.03 : -b.geometry.parameters.width/2-0.03, 0, 0);
-    win.rotation.y = side<0? Math.PI/2 : -Math.PI/2;
-    win.scale.set(1,1,1); win.position.x = 0; win.position.z = side<0? 0:0;
-    // simpler: front face toward road
-    win.position.set(0,0, side<0? b.geometry.parameters.depth/2+0.04 : -b.geometry.parameters.depth/2-0.04);
-    b.add(win); b.userData.winMat = win.material; scene.add(b); buildings.push(b);
+    // window-grid facade: map + emissive map (windows glow at night via theme)
+    const fp = facadePairs[i%facadePairs.length];
+    b.material.map = fp.map; b.material.emissiveMap = fp.emis; b.material.needsUpdate = true;
+    b.userData.winMat = b.material;
+    scene.add(b); buildings.push(b);
   }
 }
 // stars + sun/moon disc (stars fade out in daytime themes)
@@ -246,6 +300,42 @@ const car = new THREE.Group();
   under.rotation.x=-Math.PI/2; under.position.y=0.03; car.add(under);
 }
 car.position.set(0,0,0); scene.add(car);
+{ // car detail pass: spoiler, glowing rims, exhaust flames, headlight glow sprites
+  const spoiler = box(1.7,0.07,0.42, 0x0f172a, {rough:0.3, metal:0.8}); spoiler.position.set(0,1.02,1.42); car.add(spoiler);
+  for(const s of [-1,1]){
+    const post = box(0.08,0.3,0.08, 0x0f172a); post.position.set(s*0.62,0.85,1.42); car.add(post);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2,0.045,10,24),
+      new THREE.MeshStandardMaterial({ color:0x111111, emissive:0x22d3ee, emissiveIntensity:2.2 }));
+    rim.rotation.y=Math.PI/2;
+    rim.position.set(s*0.94,0.31,0); car.add(rim); car.userData['rim'+s]=rim;
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.09,0.5,10),
+      new THREE.MeshBasicMaterial({ color:0x38bdf8, transparent:true, opacity:0.85 }));
+    flame.rotation.x = -Math.PI/2; flame.position.set(s*0.4,0.3,1.78); car.add(flame);
+    car.userData['flame'+s]=flame;
+  }
+  // copy rims onto all 4 wheels visually (front pair repositioned)
+  car.userData['rim-1'].position.z=-1.05; car.userData['rim1'].position.z=-1.05;
+  const rimB1=car.userData['rim-1'].clone(); rimB1.position.z=1.05; car.add(rimB1);
+  const rimB2=car.userData['rim1'].clone(); rimB2.position.z=1.05; car.add(rimB2);
+  car.userData.extraRims=[rimB1,rimB2];
+}
+/* Street light posts (recycled, glow colour follows theme edges) */
+const lightPosts=[];
+let postHeadMat=null;
+{
+  const poleMat=new THREE.MeshStandardMaterial({ color:0x1c2333, roughness:0.6, metalness:0.6 });
+  const headMat=new THREE.MeshStandardMaterial({ color:0x111111, emissive:0xfef9c3, emissiveIntensity:2.4 });
+  postHeadMat=headMat;
+  for(let i=0;i<16;i++){
+    const s=i%2?1:-1;
+    const g=new THREE.Group();
+    const pole=new THREE.Mesh(boxGeo(0.09,3.6,0.09), poleMat); pole.position.y=1.8; g.add(pole);
+    const arm=new THREE.Mesh(boxGeo(0.09,0.09,1.1), poleMat); arm.position.set(0,3.55,-s*0.0); arm.rotation.y=0; arm.position.x=-s*0.45; arm.rotation.z=s*1.35; g.add(arm);
+    const head=new THREE.Mesh(boxGeo(0.34,0.1,0.5), headMat); head.position.set(-s*0.95,3.95,0); g.add(head);
+    g.position.set(s*5.6,0,-i*14);
+    scene.add(g); lightPosts.push(g);
+  }
+}
 
 /* ================= OBSTACLES & COINS ================= */
 const obstacles=[], coinsArr=[];
@@ -421,17 +511,18 @@ scene.add(monster);
 
 /* ================= LEVELS / THEMES ================= */
 const THEMES=[
-  { name:'BAN NGÀY · SKY CITY', day:true,  bg:new THREE.Color(0x8ec9ee), hemi:0xbfe3ff, hemiI:1.7, sunI:2.5, stars:0, moon:0xfff3b0, road:0x3b4266, winI:0.2,  edge:[0x2563eb,0x0284c7], build:[0x7dd3fc,0xfda4af,0xfde68a,0x86efac,0xc4b5fd], win:[0xffffff,0xfef9c3,0xe0f2fe,0xffffff] },
-  { name:'BAN ĐÊM · NEON CITY', day:false, bg:new THREE.Color(0x070a24), hemi:0x8ea2ff, hemiI:1.1, sunI:1.4, stars:1, moon:0xfde68a, road:0x11142e, winI:1.2,  edge:[0x2563eb,0xd946ef], build:[0x1e2a5a,0x2a1e5a,0x12303f,0x33204d,0x1c2f4a], win:[0x22d3ee,0xfbbf24,0xe879f9,0x93c5fd] },
-  { name:'BAN NGÀY · SA MẠC',   day:true,  bg:new THREE.Color(0xa5d8f5), hemi:0xfff2cc, hemiI:1.6, sunI:2.7, stars:0, moon:0xfff7cc, road:0x4a3b2c, winI:0.2,  edge:[0xf97316,0xdc2626], build:[0xe7c288,0xd9a05b,0xf0d5a0,0xc98d4e,0xe8bd7d], win:[0xfff7cc,0xffffff,0xfde68a,0xfff7cc] },
-  { name:'BAN ĐÊM · TOXIC',     day:false, bg:new THREE.Color(0x03170d), hemi:0x86efac, hemiI:1.0, sunI:1.3, stars:1, moon:0xd9f99d, road:0x0b2016, winI:1.2,  edge:[0x22c55e,0xa3e635], build:[0x0d2e1c,0x123524,0x0a2a22,0x17351a,0x10291f], win:[0x4ade80,0xa3e635,0xfde047,0x2dd4bf] },
+  { name:'BAN NGÀY · SKY CITY', day:true, sky:0x2f6fd0, bloom:0.22,  bg:new THREE.Color(0x8ec9ee), hemi:0xbfe3ff, hemiI:1.7, sunI:2.5, stars:0, moon:0xfff3b0, road:0x3b4266, winI:0.2,  edge:[0x2563eb,0x0284c7], build:[0x7dd3fc,0xfda4af,0xfde68a,0x86efac,0xc4b5fd], win:[0xffffff,0xfef9c3,0xe0f2fe,0xffffff] },
+  { name:'BAN ĐÊM · NEON CITY', day:false, sky:0x02020f, bloom:0.85, bg:new THREE.Color(0x070a24), hemi:0x8ea2ff, hemiI:1.1, sunI:1.4, stars:1, moon:0xfde68a, road:0x11142e, winI:1.2,  edge:[0x2563eb,0xd946ef], build:[0x1e2a5a,0x2a1e5a,0x12303f,0x33204d,0x1c2f4a], win:[0x22d3ee,0xfbbf24,0xe879f9,0x93c5fd] },
+  { name:'BAN NGÀY · SA MẠC',   day:true, sky:0x3a8fd9, bloom:0.20,  bg:new THREE.Color(0xa5d8f5), hemi:0xfff2cc, hemiI:1.6, sunI:2.7, stars:0, moon:0xfff7cc, road:0x4a3b2c, winI:0.2,  edge:[0xf97316,0xdc2626], build:[0xe7c288,0xd9a05b,0xf0d5a0,0xc98d4e,0xe8bd7d], win:[0xfff7cc,0xffffff,0xfde68a,0xfff7cc] },
+  { name:'BAN ĐÊM · TOXIC',     day:false, sky:0x010a05, bloom:0.80, bg:new THREE.Color(0x03170d), hemi:0x86efac, hemiI:1.0, sunI:1.3, stars:1, moon:0xd9f99d, road:0x0b2016, winI:1.2,  edge:[0x22c55e,0xa3e635], build:[0x0d2e1c,0x123524,0x0a2a22,0x17351a,0x10291f], win:[0x4ade80,0xa3e635,0xfde047,0x2dd4bf] },
 ];
-let level=1, themeIdx=0;
+let level=1, themeIdx=0, targetBloom=0.22;
 const targetBg = THEMES[0].bg.clone();
 function applyTheme(idx){
   themeIdx=((idx%THEMES.length)+THEMES.length)%THEMES.length;
   const th=THEMES[themeIdx];
   targetBg.copy(th.bg);
+  targetSkyTop.setHex(th.sky); targetBloom=th.bloom;
   buildings.forEach((b,i)=>{ b.material.color.setHex(th.build[i%th.build.length]);
     b.userData.winMat.emissive.setHex(th.win[i%th.win.length]); b.userData.winMat.emissiveIntensity=th.winI; });
   edgeMeshes.forEach((e,i)=> e.material.emissive.setHex(th.edge[i%2]));
@@ -440,6 +531,7 @@ function applyTheme(idx){
   road.material.color.setHex(th.road);
   if(starMat) starMat.opacity=th.stars;
   if(moonMesh) moonMesh.material.color.setHex(th.moon);
+  if(postHeadMat) postHeadMat.emissiveIntensity = th.day? 0.1 : 2.6;
   for(const cl of clouds) cl.visible=th.day;
 }
 
@@ -532,6 +624,7 @@ $('startBtn').onclick=startGame; $('retryBtn').onclick=startGame;
 
 /* ================= MAIN LOOP ================= */
 const timer=new THREE.Timer(); timer.connect(document);
+let fpsAcc=0, fpsN=0;
 const camBase=new THREE.Vector3(0,4.6,8.5);
 function animate(){
   timer.update();
@@ -577,6 +670,10 @@ function animate(){
     for(const s of stripes){ s.position.z+=dz; if(s.position.z>10) s.position.z-=220; }
     for(const b of buildings){ b.position.z+=dz; if(b.position.z>16){ b.position.z-=255; b.position.x=(Math.random()<0.5?-1:1)*rand(8.5,13.5); } }
     for(const cl of clouds){ if(!cl.visible) continue; cl.position.z+=dz*0.5; if(cl.position.z>20){ cl.position.z=-150; cl.position.x=rand(-55,55); } }
+    for(const p of lightPosts){ p.position.z+=dz; if(p.position.z>14) p.position.z-=224; }
+    // exhaust flames flicker with speed
+    const fl=0.65+Math.random()*0.45+effSpeed*0.01;
+    if(car.userData['flame-1']){ car.userData['flame-1'].scale.set(1,fl,1); car.userData['flame1'].scale.set(1,fl*0.9,1); }
     for(const o of obstacles){
       o.position.z+=dz;
       if(o.position.z>11){ scene.remove(o); o.userData.dead=true; continue; }
@@ -643,6 +740,7 @@ function animate(){
     car.position.y = 0.06+Math.sin(t*1.6)*0.05;
     car.rotation.y = Math.sin(t*0.35)*0.28;
     for(const s of stripes){ s.position.z+=dt*3; if(s.position.z>10) s.position.z-=220; }
+    for(const p of lightPosts){ p.position.z+=dt*3; if(p.position.z>14) p.position.z-=224; }
     for(const c of coinsArr) c.rotation.z+=dt*2;
     if(monster.visible){ monRunPhase+=dt*4; for(const L of monLegs) L.hip.rotation.x=Math.sin(monRunPhase+L.phase)*0.3;
       monster.position.y=Math.abs(Math.sin(monRunPhase))*0.12; }
@@ -650,6 +748,17 @@ function animate(){
   // smooth theme colour transitions
   scene.background.lerp(targetBg, Math.min(1, dt*1.8));
   scene.fog.color.copy(scene.background);
+  skyUniforms.botColor.value.copy(scene.background);
+  skyUniforms.topColor.value.lerp(targetSkyTop, Math.min(1, dt*1.8));
+  bloomPass.strength = THREE.MathUtils.damp(bloomPass.strength, targetBloom, 3, dt);
+  skyDome.position.copy(camera.position);
+  // adaptive resolution: keep the frame rate smooth on weaker devices
+  fpsAcc+=dt; fpsN++;
+  if(fpsAcc>=2.5){
+    const fps=fpsN/fpsAcc; fpsAcc=0; fpsN=0;
+    if(fps<45 && dprCap>1){ dprCap=Math.max(1,+(dprCap-0.25).toFixed(2)); renderer.setPixelRatio(dprCap); composer.setPixelRatio(dprCap); composer.setSize(innerWidth,innerHeight); }
+    else if(fps>57 && dprCap<1.75){ dprCap=Math.min(1.75,+(dprCap+0.25).toFixed(2)); renderer.setPixelRatio(dprCap); composer.setPixelRatio(dprCap); composer.setSize(innerWidth,innerHeight); }
+  }
   // particles
   for(let i=bursts.length-1;i>=0;i--){
     const b=bursts[i]; b.userData.life-=dt;
@@ -670,13 +779,14 @@ function animate(){
     THREE.MathUtils.damp(camera.position.x, car.position.x*0.55,6,dt)+sx,
     camBase.y + car.position.y*0.3 + sy, camBase.z);
   camera.lookAt(car.position.x*0.8, 1.1, -8);
-  renderer.render(scene,camera);
+  composer.render();
 }
 renderer.setAnimationLoop(animate);
 
 addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight);
+  composer.setSize(innerWidth,innerHeight);
 });
 // initial theme: daytime, so the menu backdrop opens in daylight
 applyTheme(0);
