@@ -65,7 +65,7 @@
 <div id="toast"></div>
 <div id="vignette"></div>
 <div id="topCenter">
-  <div id="levelName">MÀN 1 · NEON CITY</div>
+  <div id="levelName">MÀN 1 · BAN NGÀY · SKY CITY</div>
   <div class="barWrap"><div id="lvlProg"></div></div>
   <div id="monWrap">
     <div id="monLabel">👾 QUÁI ĐANG ĐUỔI PHÍA SAU</div>
@@ -84,7 +84,7 @@
       <div><b>Tạm dừng</b> <kbd>P</kbd></div>
       <div><b>Điện thoại</b> Vuốt trái / phải / lên</div>
     </div>
-    <div class="tip">🟥 Rào đỏ thấp → <b>NHẢY</b> qua được, đâm phải chỉ bị <b>vấp</b> (chậm lại + quái áp sát!) &nbsp;·&nbsp; 🟪 Xe tải tím cao → đâm là <b>THUA NGAY</b>, bắt buộc né làn<br>👾 <b>Quái đuổi sau lưng:</b> ăn xu để đẩy nó ra xa, để nó bắt kịp là thua! &nbsp;·&nbsp; 🪙 Xu +50 điểm<br>🆙 Mỗi 400m lên 1 màn: đổi cảnh, nhanh hơn, quái hung hơn. 🎵 Có nhạc nền synthwave!</div>
+    <div class="tip">🟥 Rào đỏ thấp → <b>NHẢY</b> qua được, đâm phải chỉ bị <b>vấp</b> (chậm lại + quái áp sát!) &nbsp;·&nbsp; 🟪 Xe tải tím cao → đâm là <b>THUA NGAY</b>, bắt buộc né làn<br>👾 <b>Quái đuổi sau lưng:</b> ăn xu để đẩy nó ra xa, để nó bắt kịp là thua! &nbsp;·&nbsp; 🪙 Xu +50 điểm<br>🆙 Mỗi 400m lên 1 màn: luân phiên BAN NGÀY ☀️ / BAN ĐÊM 🌙, nhanh hơn, quái hung hơn. 🎵 Có nhạc nền synthwave!</div>
   </div>
   <button class="btn" id="startBtn">▶ &nbsp;CHƠI NGAY</button>
 </div>
@@ -130,7 +130,8 @@ scene.fog = new THREE.Fog(0x070a24, 28, 115);
 const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, 0.1, 300);
 camera.position.set(0, 4.6, 8.5);
 
-scene.add(new THREE.HemisphereLight(0x8ea2ff, 0x1a1033, 1.1));
+const hemi = new THREE.HemisphereLight(0x8ea2ff, 0x1a1033, 1.1);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(6, 14, 6);
 sun.castShadow = true;
@@ -195,15 +196,29 @@ const buildings = [];
     b.add(win); b.userData.winMat = win.material; scene.add(b); buildings.push(b);
   }
 }
-// stars
+// stars + sun/moon disc (stars fade out in daytime themes)
+let starMat=null, moonMesh=null;
+const clouds=[];
 {
   const n=420, pos=new Float32Array(n*3);
   for(let i=0;i<n;i++){ pos[i*3]=rand(-90,90); pos[i*3+1]=rand(14,60); pos[i*3+2]=rand(-160,10); }
   const g=new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos,3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0xa5c4ff,size:0.35,fog:false})));
-  const moon = new THREE.Mesh(new THREE.SphereGeometry(3.4,24,24),
-    new THREE.MeshBasicMaterial({color:0xfde68a, fog:false}));
-  moon.position.set(-26,26,-120); scene.add(moon);
+  starMat=new THREE.PointsMaterial({color:0xa5c4ff,size:0.35,fog:false,transparent:true,opacity:0});
+  scene.add(new THREE.Points(g, starMat));
+  moonMesh = new THREE.Mesh(new THREE.SphereGeometry(3.4,24,24),
+    new THREE.MeshBasicMaterial({color:0xfff3b0, fog:false}));
+  moonMesh.position.set(-26,26,-120); scene.add(moonMesh);
+  // clouds for daytime
+  const cloudMat=new THREE.MeshBasicMaterial({color:0xffffff, fog:false, transparent:true, opacity:0.92});
+  for(let i=0;i<9;i++){
+    const cl=new THREE.Group();
+    for(let j=0;j<3;j++){
+      const puff=new THREE.Mesh(new THREE.SphereGeometry(rand(1.4,2.6),12,10), cloudMat);
+      puff.position.set(j*rand(1.6,2.2)-2, rand(-0.3,0.3), 0); puff.scale.y=0.55; cl.add(puff);
+    }
+    cl.position.set(rand(-55,55), rand(17,30), rand(-150,-30));
+    cl.visible=false; scene.add(cl); clouds.push(cl);
+  }
 }
 
 /* ================= PLAYER CAR ================= */
@@ -406,10 +421,10 @@ scene.add(monster);
 
 /* ================= LEVELS / THEMES ================= */
 const THEMES=[
-  { name:'NEON CITY',    bg:new THREE.Color(0x070a24), hemi:0x8ea2ff, edge:[0x2563eb,0xd946ef], build:[0x1e2a5a,0x2a1e5a,0x12303f,0x33204d,0x1c2f4a], win:[0x22d3ee,0xfbbf24,0xe879f9,0x93c5fd] },
-  { name:'MAGENTA DUSK', bg:new THREE.Color(0x200726), hemi:0xf0abfc, edge:[0xd946ef,0xf97316], build:[0x3b1140,0x2a0f38,0x401a2e,0x31123f,0x2e1a3d], win:[0xe879f9,0xfda4af,0xfbbf24,0xf0abfc] },
-  { name:'TOXIC ZONE',   bg:new THREE.Color(0x03170d), hemi:0x86efac, edge:[0x22c55e,0xa3e635], build:[0x0d2e1c,0x123524,0x0a2a22,0x17351a,0x10291f], win:[0x4ade80,0xa3e635,0xfde047,0x2dd4bf] },
-  { name:'SOLAR STORM',  bg:new THREE.Color(0x1e0e02), hemi:0xfcd34d, edge:[0xf97316,0xef4444], build:[0x3a2008,0x33200f,0x402a10,0x2e1a08,0x3d2408], win:[0xfbbf24,0xfb923c,0xf87171,0xfde68a] },
+  { name:'BAN NGÀY · SKY CITY', day:true,  bg:new THREE.Color(0x8ec9ee), hemi:0xbfe3ff, hemiI:1.7, sunI:2.5, stars:0, moon:0xfff3b0, road:0x3b4266, winI:0.2,  edge:[0x2563eb,0x0284c7], build:[0x7dd3fc,0xfda4af,0xfde68a,0x86efac,0xc4b5fd], win:[0xffffff,0xfef9c3,0xe0f2fe,0xffffff] },
+  { name:'BAN ĐÊM · NEON CITY', day:false, bg:new THREE.Color(0x070a24), hemi:0x8ea2ff, hemiI:1.1, sunI:1.4, stars:1, moon:0xfde68a, road:0x11142e, winI:1.2,  edge:[0x2563eb,0xd946ef], build:[0x1e2a5a,0x2a1e5a,0x12303f,0x33204d,0x1c2f4a], win:[0x22d3ee,0xfbbf24,0xe879f9,0x93c5fd] },
+  { name:'BAN NGÀY · SA MẠC',   day:true,  bg:new THREE.Color(0xa5d8f5), hemi:0xfff2cc, hemiI:1.6, sunI:2.7, stars:0, moon:0xfff7cc, road:0x4a3b2c, winI:0.2,  edge:[0xf97316,0xdc2626], build:[0xe7c288,0xd9a05b,0xf0d5a0,0xc98d4e,0xe8bd7d], win:[0xfff7cc,0xffffff,0xfde68a,0xfff7cc] },
+  { name:'BAN ĐÊM · TOXIC',     day:false, bg:new THREE.Color(0x03170d), hemi:0x86efac, hemiI:1.0, sunI:1.3, stars:1, moon:0xd9f99d, road:0x0b2016, winI:1.2,  edge:[0x22c55e,0xa3e635], build:[0x0d2e1c,0x123524,0x0a2a22,0x17351a,0x10291f], win:[0x4ade80,0xa3e635,0xfde047,0x2dd4bf] },
 ];
 let level=1, themeIdx=0;
 const targetBg = THEMES[0].bg.clone();
@@ -417,9 +432,15 @@ function applyTheme(idx){
   themeIdx=((idx%THEMES.length)+THEMES.length)%THEMES.length;
   const th=THEMES[themeIdx];
   targetBg.copy(th.bg);
-  buildings.forEach((b,i)=>{ b.material.color.setHex(th.build[i%th.build.length]); b.userData.winMat.emissive.setHex(th.win[i%th.win.length]); });
+  buildings.forEach((b,i)=>{ b.material.color.setHex(th.build[i%th.build.length]);
+    b.userData.winMat.emissive.setHex(th.win[i%th.win.length]); b.userData.winMat.emissiveIntensity=th.winI; });
   edgeMeshes.forEach((e,i)=> e.material.emissive.setHex(th.edge[i%2]));
-  scene.traverse(o=>{ if(o.isHemisphereLight) o.color.setHex(th.hemi); });
+  hemi.color.setHex(th.hemi); hemi.intensity=th.hemiI;
+  sun.intensity=th.sunI;
+  road.material.color.setHex(th.road);
+  if(starMat) starMat.opacity=th.stars;
+  if(moonMesh) moonMesh.material.color.setHex(th.moon);
+  for(const cl of clouds) cl.visible=th.day;
 }
 
 /* ================= GAME STATE ================= */
@@ -555,6 +576,7 @@ function animate(){
     const dz=effSpeed*dt;
     for(const s of stripes){ s.position.z+=dz; if(s.position.z>10) s.position.z-=220; }
     for(const b of buildings){ b.position.z+=dz; if(b.position.z>16){ b.position.z-=255; b.position.x=(Math.random()<0.5?-1:1)*rand(8.5,13.5); } }
+    for(const cl of clouds){ if(!cl.visible) continue; cl.position.z+=dz*0.5; if(cl.position.z>20){ cl.position.z=-150; cl.position.x=rand(-55,55); } }
     for(const o of obstacles){
       o.position.z+=dz;
       if(o.position.z>11){ scene.remove(o); o.userData.dead=true; continue; }
@@ -590,11 +612,22 @@ function animate(){
       }
     }
     for(let i=coinsArr.length-1;i>=0;i--) if(coinsArr[i].userData.dead) coinsArr.splice(i,1);
-    // spawn ahead when farthest content is close
-    let farthest=-130;
+    // spawn ahead: keep content filled out to ~-120 ahead of the car.
+    // (bug fix: farthest must start at +Infinity — starting at -130 made Math.min
+    //  stick at -130 forever, so nothing ever spawned after the opening stretch)
+    let farthest=Infinity;
     for(const o of obstacles) farthest=Math.min(farthest,o.position.z);
     for(const c of coinsArr) farthest=Math.min(farthest,c.position.z);
-    if(farthest>-95) spawnPattern(farthest-rand(Math.max(11,18-level*1.2), Math.max(16,27-level*1.6)));
+    if(farthest===Infinity) farthest=-45;
+    {
+      const gapMin=Math.max(11,18-level*1.2), gapMax=Math.max(16,27-level*1.6);
+      let guard=0;
+      while(farthest>-92 && guard++<3){
+        const nz=farthest-rand(gapMin,gapMax);
+        spawnPattern(nz);
+        farthest=nz-10; // patterns reach ~10 units beyond their base z
+      }
+    }
     // monster visuals: chase position, run cycle, looming scale
     monRunPhase += dt*(5+effSpeed*0.42);
     monster.position.z = monsterGap;
@@ -645,6 +678,9 @@ addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight);
 });
+// initial theme: daytime, so the menu backdrop opens in daylight
+applyTheme(0);
+scene.background.copy(THEMES[0].bg); scene.fog.color.copy(THEMES[0].bg);
 // initial scenery coins for the menu backdrop
 for(let i=0;i<6;i++) makeCoin(1,-14-i*5);
 $('bestScore').textContent=best;
